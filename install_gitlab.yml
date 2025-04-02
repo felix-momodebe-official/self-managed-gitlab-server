@@ -1,0 +1,84 @@
+---
+- name: Install GitLab on Ubuntu 22.04 with SSL
+  hosts: gitlab_server
+  become: yes
+  vars:
+    gitlab_domain: "succpinndemo.com"
+
+  tasks:
+    - name: Update package lists
+      apt:
+        update_cache: yes
+
+    - name: Install dependencies
+      apt:
+        name:
+          - curl
+          - openssh-server
+          - ca-certificates
+          - tzdata
+          - perl
+        state: present
+
+    - name: Install Postfix
+      debconf:
+        name: postfix
+        question: "postfix/main_mailer_type"
+        value: "Internet Site"
+        vtype: "string"
+
+    - name: Install Postfix package
+      apt:
+        name: postfix
+        state: present
+
+    - name: Ensure UFW is installed
+      apt:
+        name: ufw
+        state: present
+
+    - name: Allow OpenSSH, HTTP, and HTTPS in UFW
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - "22"
+        - "80"
+        - "443"
+
+    - name: Enable UFW
+      command: ufw --force enable
+      ignore_errors: yes
+
+    - name: Add GitLab repository
+      shell: curl https://packages.gitlab.com/install/repositories/gitlab/gitlab-ee/script.deb.sh | sudo bash
+
+    - name: Install GitLab
+      apt:
+        name: gitlab-ee
+        state: present
+      environment:
+        EXTERNAL_URL: "https://{{ gitlab_domain }}"
+
+    - name: Ensure Certbot (Let's Encrypt) is installed
+      apt:
+        name: certbot
+        state: present
+
+    - name: Verify SSL Certificate is Obtained
+      shell: "openssl s_client -connect {{ gitlab_domain }}:443 -servername {{ gitlab_domain }} < /dev/null"
+      register: ssl_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: Debug SSL Check Output
+      debug:
+        msg: "{{ ssl_check.stdout_lines }}"
+
+    - name: Display GitLab root password
+      command: cat /etc/gitlab/initial_root_password
+      register: root_password
+
+    - name: Print root password
+      debug:
+        msg: "{{ root_password.stdout }}"
